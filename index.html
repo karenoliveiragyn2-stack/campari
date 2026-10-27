@@ -83,6 +83,11 @@ footer.cpf{margin-top:28px;padding-top:12px;border-top:1px solid var(--color-bor
 .cp-g2 .nums strong{font-family:var(--cp-cond);font-weight:700;font-size:2rem;line-height:1;font-variant-numeric:tabular-nums}
 .cp-g2 .cp-track{margin-top:4px}
 .cp-g2 .ft{font-size:var(--cds-font-size-caption);color:var(--color-fg-muted)}
+.cp-g2sv{display:flex;flex-direction:column;gap:var(--cds-gap-md)}
+.cp-g2sv .cp-g2{border-left-width:4px;padding:var(--cds-pad-md) var(--cds-pad-lg)}
+.cp-g2sv .cp-g2.sel{box-shadow:0 0 0 2px var(--cp-red)}
+.cp-g2 .sup{font-size:var(--cds-font-size-caption);color:var(--color-fg-muted);font-weight:500;text-transform:none;letter-spacing:0;margin-left:6px}
+.cp-g2 .nums strong.na{color:var(--color-fg-muted)}
 .cp-bar{display:flex;flex-wrap:wrap;gap:var(--cds-gap-sm);align-items:center}
 .cp-seg{display:inline-flex;border:1px solid var(--color-border-line);border-radius:var(--cds-radius);overflow:hidden;background:var(--color-panel)}
 .cp-seg button{all:unset;cursor:pointer;padding:var(--cds-pad-xs) var(--cds-pad-md);font-size:var(--cds-font-size-body);color:var(--color-fg-muted)}
@@ -204,6 +209,8 @@ footer.cpf{margin-top:28px;padding-top:12px;border-top:1px solid var(--color-bor
       <span class="ft">Projeção no ritmo atual: <span data-source="campari_vol_g2" data-field="projecao" data-row="0">—</span> (<span data-source="campari_vol_g2" data-field="proj_pct" data-row="0">—</span>% da meta) · +<span data-source="campari_vol_g2" data-field="online" data-row="0">—</span> em pedidos online hoje · meta informada pelo Rodrigo</span>
     </div>
   </section>
+
+  <div class="cp-g2sv" id="cp-g2sv" aria-label="Faixas por supervisão"></div>
 
   <div class="cp-bar">
     <div class="cp-seg" role="group" aria-label="Supervisão" id="cp-svbtn">
@@ -359,6 +366,22 @@ dash.calc('campari_vol_g2', {
     return [{ sv: 'G2', meta, real, online: Number(v.vol_online || 0), pct: Math.round(real / meta * 100), projecao, proj_pct: Math.round(projecao / meta * 100) }];
   }
 });
+dash.calc('campari_vol_sv', {
+  inputs: ['campari_rotas', 'campari_volume_g2', 'campari_referencia'],
+  title: 'Volume Campari por supervisão',
+  description: 'Soma o volume faturado e o online de hoje de Campari das rotas de cada supervisão; meta da SV quando informada; % = real ÷ meta; projeção = real ÷ dias úteis realizados × dias úteis do mês.',
+  fn: (campari_rotas, campari_volume_g2, campari_referencia) => {
+    const ref = campari_referencia[0];
+    return ['SV. G2.1', 'SV. G2.2', 'SV. G2.3'].map((sv) => {
+      const r = campari_rotas.filter((x) => x.sv === sv), m = campari_volume_g2.find((x) => x.sv === sv);
+      const real = Math.round(r.reduce((s, x) => s + Number(x.campari_vol_real || 0), 0) * 10) / 10;
+      const online = Math.round(r.reduce((s, x) => s + Number(x.campari_vol_online || 0), 0) * 10) / 10;
+      const meta = m && m.vol_meta != null ? Number(m.vol_meta) : null;
+      const projecao = Math.round(real / ref.dias_uteis_realizados * ref.dias_uteis_mes * 10) / 10;
+      return { sv, real, online, meta, pct: meta ? Math.round(real / meta * 100) : null, projecao, proj_pct: meta ? Math.round(projecao / meta * 100) : null };
+    });
+  }
+});
 dash.calc('campari_segmentos', {
   inputs: ['campari_clientes'],
   title: 'Campari por segmento',
@@ -424,6 +447,24 @@ dash.calc('campari_segmentos', {
       $('g2-vpct').className = v.pct >= ritmo ? 'ok' : 'bad';
       $('g2-vbar').replaceWith(Object.assign(bar(v.pct, ritmo, v.pct >= ritmo), { id: 'g2-vbar' }));
     }
+    const VS = dash.data('campari_vol_sv'), box = $('cp-g2sv'); box.replaceChildren();
+    if (VS.status === 'ok') K.data.filter((k) => k.sv !== 'G2').forEach((k) => {
+      const v = VS.data.find((x) => x.sv === k.sv), w = 'sv=' + enc(k.sv);
+      const sec = el('section', 'cp-g2' + (st.sv === k.sv ? ' sel' : '')); sec.setAttribute('aria-label', k.sv);
+      const num = (lab, txt, src, f, cls) => { const d = el('div'); const s = el('strong', cls || null, txt); if (src) { s.dataset.source = src; s.dataset.field = f; s.setAttribute('data-where', w); } d.append(el('span', null, lab), s); return d; };
+      const tt = (t) => { const s = el('span', 'tt'); s.append(el('b', null, k.sv.replace('SV. ', '')), document.createTextNode(t)); if (t === ' Cobertura Campari') s.append(el('span', 'sup', k.supervisor)); return s; };
+      const b1 = el('div', 'bk'), n1 = el('div', 'nums');
+      n1.append(num('Real', nf.format(k.real), 'campari_kpis', 'real'), num('Meta', nf.format(k.meta), 'campari_kpis', 'meta'), num('% da meta', k.pct + '%', 'campari_kpis', 'pct', k.pct >= ritmo ? 'ok' : 'bad'));
+      b1.append(tt(' Cobertura Campari'), n1, bar(k.pct, ritmo, k.pct >= ritmo), el('span', 'ft', 'Ritmo esperado ' + ritmo + '% · faltam ' + nf.format(k.faltam_ritmo) + ' para o ritmo de hoje'));
+      const b2 = el('div', 'bk'), n2 = el('div', 'nums'), has = v.meta != null;
+      n2.append(num('Real', vf1.format(v.real), 'campari_vol_sv', 'real'), has ? num('Meta', vf1.format(v.meta), 'campari_vol_sv', 'meta') : num('Meta', '—', null, null, 'na'),
+        has ? num('% da meta', v.pct + '%', 'campari_vol_sv', 'pct', v.pct >= ritmo ? 'ok' : 'bad') : num('% da meta', '—', null, null, 'na'));
+      b2.append(tt(' Volume Campari'), n2, has ? bar(v.pct, ritmo, v.pct >= ritmo) : bar(0, ritmo, true),
+        el('span', 'ft', 'Projeção no ritmo atual: ' + vf1.format(v.projecao) + (has ? ' (' + v.proj_pct + '% da meta)' : '') + ' · +' + vf1.format(v.online) + ' em pedidos online hoje' + (has ? '' : ' · meta da SV ainda não informada')));
+      sec.append(b1, b2);
+      sec.style.cursor = 'pointer'; sec.addEventListener('click', () => setSV(st.sv === k.sv ? 'G2' : k.sv));
+      box.append(sec);
+    });
     $('tk-du').textContent = ref.dias_uteis_realizados; $('tk-tot').textContent = ref.dias_uteis_mes; $('tk-rit').textContent = ritmo;
     $('tk-sv').textContent = st.sv === 'G2' ? 'a G2' : 'a ' + st.sv;
     $('tk-real').textContent = nf.format(kp.real); $('tk-meta').textContent = nf.format(kp.meta); $('tk-pct').textContent = kp.pct;
